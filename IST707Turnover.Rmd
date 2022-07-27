@@ -1,0 +1,354 @@
+---
+title: "IST707 Project"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+#install.packages("EMCluster")
+#install.packages("cluster")
+#install.packages("factoextra)
+library(EMCluster)
+library(cluster)
+library(factoextra)
+library(car)
+library(plyr)
+library(DT)
+library(readr)
+
+# Needed to introduce tuning parameters for machine learning
+library(caret) # Machine Learning
+library(caretEnsemble) # To ensemble predictions
+#library(questionr)# Required run Naive in caret
+library(klaR) # Required for Naive Bayes in caret
+library(e1071) # Required for Naive Bayes faster
+
+# Needed for Decision tree model and plot
+library(rpart) # decision tree
+library(rpart.plot) # used for model plot
+library(rattle) # used for model plot
+
+# Needed for image manipulation
+library(imager)
+
+# Needed to extract cumulative proportion in PCA analysis
+library(factoextra) 
+```
+
+
+```{r}
+employee <- read.csv("/Users/sammywhite/Downloads/Employee.csv")
+str(employee)
+summary(employee)
+```
+
+Preprocessing
+```{r}
+employee$Education <- as.factor(employee$Education)
+employee$City <- as.factor(employee$City)
+employee$Gender <- as.factor(employee$Gender)
+employee$EverBenched <- as.factor(employee$EverBenched)
+employee$LeaveOrNot <- as.factor(employee$LeaveOrNot)
+```
+
+```{r}
+#length(which(is.na(employee_train)))
+```
+
+```{r}
+
+```
+
+
+Create training and testing 
+```{r}
+trainRatio <- .70
+sample <- sample.int(n=nrow(employee), size=trainRatio*nrow(employee))
+employee_train <- employee[sample,]
+employee_test <- employee[-sample,]
+```
+
+```{r}
+head(employee_train)
+```
+
+```{r}
+# Creating a control with cross validation of 3
+control <- trainControl(method ='cv',number = 3)
+
+# Metric for comparison will be accuracy for this project
+metric <-  "Accuracy"
+```
+
+```{r}
+# Decision Tree
+
+tree.model <- train(LeaveOrNot ~ ., data = employee_train, method="rpart", metric=metric, trControl=control, tuneLength = 5)
+```
+
+```{r}
+print(tree.model)
+plot(tree.model)
+```
+```{r}
+# Support Vector Machine (SVM)
+
+svm.model <- train(LeaveOrNot ~ ., data = employee_train, method="svmRadial", metric=metric, trControl=control, tuneLength = 5)
+```
+
+```{r}
+print(svm.model)
+plot(svm.model)
+```
+
+```{r}
+# kNN
+
+knn.model <- train(LeaveOrNot ~ ., data = employee_train, method="knn", metric=metric, trControl=control, tuneLength = 5)
+```
+
+```{r}
+print(knn.model)
+plot(knn.model)
+```
+
+```{r}
+# Random Forest
+rf.model <- train(LeaveOrNot ~ ., data = employee_train, method="rf", metric=metric, trControl=control, tuneLength = 5)
+```
+
+```{r}
+print(rf.model)
+plot(rf.model)
+```
+
+```{r}
+# summarize accuracy of models
+results <- resamples(list(Decesion_Tree=tree.model,
+                          knn=knn.model,SVM=svm.model,Random_Forest=rf.model))
+
+dotplot(results)
+```
+
+```{r}
+#random forest prediction
+rf <- predict(rf.model, employee_test)
+prediction <- data.frame(rf, employee_test$LeaveOrNot)
+
+```
+
+
+```{r}
+prediction$rf <- as.integer(prediction$rf)
+prediction$employee_test.LeaveOrNot <- as.integer(prediction$employee_test.LeaveOrNot)
+colnames(prediction)=c("Acutal", "Predicted")
+prediction$Error <- abs(prediction$Acutal - prediction$Predicted)
+head(prediction)
+```
+```{r}
+rfTestingError <- sum(prediction$Error)/nrow(prediction)
+rfTestingAccuracy <- 1-rfTestingError
+rfTestingAccuracy
+```
+
+```{r}
+trueLeaveRF <- nrow(prediction[prediction$Acutal==2&prediction$Predicted==2,])
+trueStayRF <- nrow(prediction[prediction$Acutal==1&prediction$Predicted==1,])
+falseLeaveRF <- nrow(prediction[prediction$Acutal==1&prediction$Predicted==2,])
+falseStayRF <- nrow(prediction[prediction$Acutal==2&prediction$Predicted==1,])
+
+leaveRF <- trueLeaveRF + falseLeaveRF
+stayRF <- trueStayRF + falseStayRF
+
+barplot(c(trueLeaveRF, falseLeaveRF, trueStayRF, falseStayRF), names.arg=c("True Leave", "False Leave", "True Stay", "False Stay"), main="Random Forest Model Results")
+```
+```{r}
+percentLeaveRF <- c(round(trueLeaveRF/(trueLeaveRF+falseLeaveRF), 2), round(falseLeaveRF/(trueLeaveRF+falseLeaveRF), 2))
+
+percentStayRF <- c(round(trueStayRF/(trueStayRF+falseStayRF), 2), round(falseStayRF/(trueStayRF+falseStayRF), 2))
+```
+
+```{r}
+par(mfrow=c(1,2)) 
+pie(c(trueLeaveRF, falseLeaveRF), labels=paste0(c("Correct", "Incorrect"), "\n", percentLeaveRF, "%"), main=paste0("Breakdown of", "\n", "Leave Predictions"))
+pie(c(trueStayRF, falseStayRF), labels=paste0(c("Correct", "Incorrect"), "\n", percentStayRF, "%"), main=paste0("Breakdown of", "\n", "Stay Predictions"))
+```
+
+
+```{r}
+#new SVM with cost=4
+library(e1071)
+svm <- svm(LeaveOrNot~., data = employee_train, cost=4)
+svm
+pred=predict(svm, newdata=employee_test, type=c("class"))
+
+```
+
+```{r}
+Actual <- employee_test$LeaveOrNot
+newpredSVM <- cbind(Actual,pred)
+colnames(newpredSVM)=c("Acutal", "Predicted")
+newpredSVM <- as.data.frame(newpredSVM)
+newpredSVM$Error <- abs(newpredSVM$Acutal - newpredSVM$Predicted)
+#newpredSVM
+```
+```{r}
+svmTestingError <- sum(newpredSVM$Error)/nrow(newpredSVM)
+svmTestingAccuracy <- 1-svmTestingError
+svmTestingAccuracy
+```
+
+2=leave, 1=stay
+
+```{r}
+trueLeave <- nrow(newpredSVM[newpredSVM$Acutal==2&newpredSVM$Predicted==2,])
+trueStay <- nrow(newpredSVM[newpredSVM$Acutal==1&newpredSVM$Predicted==1,])
+falseLeave <- nrow(newpredSVM[newpredSVM$Acutal==1&newpredSVM$Predicted==2,])
+falseStay <- nrow(newpredSVM[newpredSVM$Acutal==2&newpredSVM$Predicted==1,])
+
+leaveSVM <- trueLeave + falseLeave
+staySVM <- trueStay + falseStay
+
+barplot(c(trueLeave, falseLeave, trueStay, falseStay), names.arg=c("True Leave", "False Leave", "True Stay", "False Stay"), main="SVM Model Results")
+```
+```{r}
+percentLeave <- c(round(trueLeave/(trueLeave+falseLeave), 2), round(falseLeave/(trueLeave+falseLeave), 2))
+
+percentStay <- c(round(trueStay/(trueStay+falseStay), 2), round(falseStay/(trueStay+falseStay), 2))
+
+```
+
+
+```{r}
+par(mfrow=c(1,2)) 
+pie(c(trueLeave, falseLeave), labels=paste0(c("Correct", "Incorrect"), "\n", percentLeave, "%"), main=paste0("Breakdown of", "\n", "Leave Predictions"))
+pie(c(trueStay, falseStay), labels=paste0(c("Correct", "Incorrect"), "\n", percentStay, "%"), main=paste0("Breakdown of", "\n", "Stay Predictions"))
+```
+
+```{r}
+barplot(c(leaveSVM, staySVM, leaveRF, stayRF), names.arg=c("Leave SVM", "Stay SVM", "Leave RF", "Stay RF"), main="SVM and RF Model Comparison")
+```
+
+
+```{r}
+#barchart(t(cm))
+```
+
+```{r}
+PHDStay <- nrow(employee[employee$Education=="PHD"&employee$LeaveOrNot==0,])/nrow(employee[employee$Education=="PHD",])
+PHDStay
+
+totalstay <- nrow(employee[employee$LeaveOrNot==0,])/nrow(employee)
+totalstay
+```
+
+```{r}
+PT1Stay <- nrow(employee[employee$PaymentTier==1&employee$LeaveOrNot==0,])/nrow(employee[employee$PaymentTier==1,])
+PT1Stay
+
+PT2Stay <- nrow(employee[employee$PaymentTier==2&employee$LeaveOrNot==0,])/nrow(employee[employee$PaymentTier==2,])
+PT2Stay
+
+PT3Stay <- nrow(employee[employee$PaymentTier==3&employee$LeaveOrNot==0,])/nrow(employee[employee$PaymentTier==3,])
+PT3Stay
+
+```
+
+```{r}
+BachStay <- nrow(employee[employee$Education=="Bachelors"&employee$LeaveOrNot==0,])/nrow(employee[employee$Education=="Bachelors",])
+
+MastStay <- nrow(employee[employee$Education=="Masters"&employee$LeaveOrNot==0,])/nrow(employee[employee$Education=="Masters",])
+
+PHDStay <- nrow(employee[employee$Education=="PHD"&employee$LeaveOrNot==0,])/nrow(employee[employee$Education=="PHD",])
+
+barchart(t(data.frame(BachStay,MastStay,PHDStay)), xlab="percent stay")
+
+```
+```{r}
+BenchedStay <- nrow(employee[employee$EverBenched=="Yes"&employee$LeaveOrNot==0,])/nrow(employee[employee$EverBenched=="Yes",])
+
+NeverBenchedStay <- nrow(employee[employee$EverBenched=="No"&employee$LeaveOrNot==0,])/nrow(employee[employee$EverBenched=="No",])
+
+barchart(t(data.frame(BenchedStay,NeverBenchedStay)), xlab="percent stay")
+```
+```{r}
+head(employee)
+```
+
+
+```{r}
+summary(employee$JoiningYear)
+```
+
+```{r}
+i <- 2012
+output <- c()
+while(i < 2019){
+  val <- nrow(employee[employee$JoiningYear==i&employee$LeaveOrNot==0,])/nrow(employee[employee$JoiningYear==i,])
+  output <- c(output, val)
+  i <- i+1
+}
+percentstay_joiningyear <- data.frame("joining year" = c(2012:2018), "percent stay" = output)
+percentstay_joiningyear
+
+
+```
+
+```{r}
+plot(percentstay_joiningyear)
+lines(percentstay_joiningyear)
+```
+```{r}
+nrow(employee[employee$JoiningYear==2018&employee$LeaveOrNot==1,])/nrow(employee[employee$LeaveOrNot==1,])
+```
+
+```{r}
+nrow(employee[employee$JoiningYear==2018,])/nrow(employee)
+```
+
+
+```{r}
+i <- 22
+output <- c()
+while(i < 42){
+  val <- nrow(employee[employee$Age==i&employee$LeaveOrNot==0,])/nrow(employee[employee$Age==i,])
+  output <- c(output, val)
+  i <- i+1
+}
+percentstay_age <- data.frame("age" = c(22:41), "percent stay" = output)
+percentstay_age
+
+
+```
+
+```{r}
+plot(percentstay_age)
+lines(percentstay_age)
+```
+
+
+```{r}
+summary(employee$ExperienceInCurrentDomain)
+```
+
+```{r}
+i <- 0
+output <- c()
+while(i < 8){
+  val <- nrow(employee[employee$ExperienceInCurrentDomain==i&employee$LeaveOrNot==0,])/nrow(employee[employee$ExperienceInCurrentDomain==i,])
+  output <- c(output, val)
+  i <- i+1
+}
+percentstay_exp <- data.frame("experience" = c(0:7), "percent stay" = output)
+percentstay_exp
+
+
+```
+
+```{r}
+plot(percentstay_exp)
+lines(percentstay_exp)
+```
+
